@@ -108,6 +108,9 @@ type Server struct {
 	MaxPacketSize int
 	// disable automatic RTCP sender reports.
 	DisableRTCPSenderReports bool
+	// period of automatic RTCP sender reports.
+	// It defaults to 10 seconds.
+	SenderReportPeriod time.Duration
 	// authentication methods.
 	// It defaults to plain and digest+MD5.
 	AuthMethods []auth.VerifyMethod
@@ -187,6 +190,9 @@ func (s *Server) Start() error {
 	} else if s.MaxPacketSize > udpMaxPayloadSize {
 		return fmt.Errorf("MaxPacketSize (%d) must be less than %d", s.MaxPacketSize, udpMaxPayloadSize)
 	}
+	if s.SenderReportPeriod < 0 {
+		return fmt.Errorf("SenderReportPeriod (%v) must not be negative", s.SenderReportPeriod)
+	}
 	if len(s.AuthMethods) == 0 {
 		// disable VerifyMethodDigestSHA256 unless explicitly set
 		// since it prevents FFmpeg from authenticating
@@ -204,6 +210,9 @@ func (s *Server) Start() error {
 	// private
 	if s.timeNow == nil {
 		s.timeNow = time.Now
+	}
+	if s.senderReportPeriod == 0 {
+		s.senderReportPeriod = s.SenderReportPeriod
 	}
 	if s.senderReportPeriod == 0 {
 		s.senderReportPeriod = 10 * time.Second

@@ -104,7 +104,7 @@ func newSenderReportTestSession(t *testing.T, period time.Duration) *senderRepor
 			},
 		},
 		RTSPAddress:        "127.0.0.1:0",
-		senderReportPeriod: period,
+		SenderReportPeriod: period,
 	}
 	err := st.s.Start()
 	require.NoError(t, err)
@@ -341,4 +341,43 @@ func TestServerSessionSenderReportPendingAfterPause(t *testing.T) {
 	// the reports of the new write queue are written
 	waitNextDue(t, due)
 	require.NotZero(t, st.writeUntilMarker(t, func(error) {}, written))
+}
+
+// the public sender report period is the one the senders get,
+// and zero keeps the default.
+func TestServerSenderReportPeriod(t *testing.T) {
+	for _, ca := range []struct {
+		name string
+		set  time.Duration
+		want time.Duration
+	}{
+		{"default", 0, 10 * time.Second},
+		{"set", 20 * time.Millisecond, 20 * time.Millisecond},
+	} {
+		t.Run(ca.name, func(t *testing.T) {
+			s := &Server{
+				RTSPAddress:        "127.0.0.1:0",
+				SenderReportPeriod: ca.set,
+			}
+			err := s.Start()
+			require.NoError(t, err)
+			defer s.Close()
+
+			require.Equal(t, ca.want, s.senderReportPeriod)
+		})
+	}
+}
+
+// a negative sender report period is refused by Start,
+// since the ticker of the senders cannot take it.
+func TestServerSenderReportPeriodNegative(t *testing.T) {
+	s := &Server{
+		RTSPAddress:        "127.0.0.1:0",
+		SenderReportPeriod: -time.Second,
+	}
+	err := s.Start()
+	if err == nil {
+		s.Close()
+	}
+	require.EqualError(t, err, "SenderReportPeriod (-1s) must not be negative")
 }
