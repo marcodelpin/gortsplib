@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pion/rtcp"
@@ -27,6 +28,7 @@ type serverSessionFormat struct {
 	rtpReceiver           *rtpreceiver.Receiver // record or back channel
 	writePacketRTPInQueue func([]byte) error
 	rtpSender             *rtpsender.Sender // play
+	senderReportPending   atomic.Bool       // play
 }
 
 func (ssf *serverSessionFormat) initialize() {
@@ -63,7 +65,9 @@ func (ssf *serverSessionFormat) initialize() {
 			TimeNow:   ssf.ssm.ss.s.timeNow,
 			WritePacketRTCP: func(pkt rtcp.Packet) {
 				if !ssf.ssm.ss.s.DisableRTCPSenderReports {
-					ssf.ssm.writePacketRTCP(pkt) //nolint:errcheck
+					// keep at most one sender report in the write queue:
+					// a report is skipped while the previous one has not been written yet.
+					ssf.ssm.writePacketRTCPPending(pkt, &ssf.senderReportPending) //nolint:errcheck
 				}
 			},
 		}

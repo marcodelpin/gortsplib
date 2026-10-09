@@ -397,6 +397,17 @@ func (ssm *serverSessionMedia) onPacketRTCPDecodeError(err error) {
 }
 
 func (ssm *serverSessionMedia) writePacketRTCP(pkt rtcp.Packet) error {
+	return ssm.writePacketRTCPPending(pkt, nil)
+}
+
+// writePacketRTCPPending writes a RTCP packet.
+// If pending is not nil, the packet is skipped when pending is set,
+// otherwise pending is set until the packet is written.
+func (ssm *serverSessionMedia) writePacketRTCPPending(pkt rtcp.Packet, pending *atomic.Bool) error {
+	if pending != nil && pending.Load() {
+		return nil
+	}
+
 	plain, err := pkt.Marshal()
 	if err != nil {
 		return err
@@ -421,16 +432,37 @@ func (ssm *serverSessionMedia) writePacketRTCP(pkt rtcp.Packet) error {
 	}
 
 	if ssm.srtpOutCtx != nil {
-		return ssm.writePacketRTCPEncoded(encr)
+		return ssm.writePacketRTCPEncodedPending(encr, pending)
 	}
-	return ssm.writePacketRTCPEncoded(plain)
+	return ssm.writePacketRTCPEncodedPending(plain, pending)
 }
 
 func (ssm *serverSessionMedia) writePacketRTCPEncoded(payload []byte) error {
+	return ssm.writePacketRTCPEncodedPending(payload, nil)
+}
+
+func (ssm *serverSessionMedia) writePacketRTCPEncodedPending(payload []byte, pending *atomic.Bool) error {
 	ssm.ss.writerMutex.RLock()
 	defer ssm.ss.writerMutex.RUnlock()
 
 	if ssm.ss.writer == nil {
+		return nil
+	}
+
+	if pending != nil {
+		if !pending.CompareAndSwap(false, true) {
+			return nil
+		}
+
+		ok := ssm.ss.writer.Push(func() error {
+			pending.Store(false)
+			return ssm.writePacketRTCPInQueue(payload)
+		})
+		if !ok {
+			pending.Store(false)
+			return liberrors.ErrServerWriteQueueFull{}
+		}
+
 		return nil
 	}
 

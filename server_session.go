@@ -534,6 +534,14 @@ func (ss *ServerSession) destroyWriter() {
 
 	ss.writerMutex.Lock()
 	ss.writer = nil
+
+	// sender reports pending in the closed queue are discarded.
+	for _, sm := range ss.setuppedMedias {
+		for _, sf := range sm.formats {
+			sf.senderReportPending.Store(false)
+		}
+	}
+
 	ss.writerMutex.Unlock()
 }
 
