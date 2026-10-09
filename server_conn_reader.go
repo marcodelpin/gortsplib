@@ -206,7 +206,7 @@ func (cr *serverConnReader) readFuncStandard() error {
 	for {
 		// when FFmpeg is recording with UDP, it does not send keepalives, no matter what.
 		// disable read deadline.
-		if cr.sc.session != nil && cr.sc.session.state == ServerSessionStateRecord {
+		if ss := cr.sc.Session(); ss != nil && ss.State() == ServerSessionStateRecord {
 			cr.sc.nconn.SetReadDeadline(time.Time{})
 		} else {
 			cr.sc.nconn.SetReadDeadline(time.Now().Add(cr.sc.s.IdleTimeout))
@@ -246,7 +246,7 @@ func (cr *serverConnReader) readFuncTCP() error {
 	cr.sc.session.asyncStartWriter()
 
 	for {
-		if cr.sc.session.state == ServerSessionStateRecord {
+		if cr.sc.Session().State() == ServerSessionStateRecord {
 			cr.sc.nconn.SetReadDeadline(time.Now().Add(cr.sc.s.ReadTimeout))
 		} else {
 			cr.sc.nconn.SetReadDeadline(time.Now().Add(cr.sc.s.IdleTimeout))
