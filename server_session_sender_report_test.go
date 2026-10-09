@@ -269,7 +269,7 @@ func waitWriterClosing(t *testing.T) {
 
 	for {
 		n := runtime.Stack(buf, true)
-		for _, g := range strings.Split(string(buf[:n]), "\n\n") {
+		for g := range strings.SplitSeq(string(buf[:n]), "\n\n") {
 			if strings.Contains(g, "[chan receive") &&
 				strings.Contains(g, "asyncprocessor.(*Processor).Close(") {
 				return
