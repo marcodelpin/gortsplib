@@ -196,8 +196,12 @@ func waitDue(t *testing.T, due chan struct{}, n int) {
 	}
 }
 
-// waitNextDue discards the reports that fell due so far
-// and waits for the next one.
+// waitNextDue discards the reports that fell due so far and waits
+// for a report that falls due after the call. Reports fall due one at a time
+// on the sender's goroutine, so at most one of them can have started before
+// the channel was drained, and seen an earlier state of the session
+// (a writer that a PAUSE removed, a report still pending): the second
+// notification after the drain comes from a report that started after it.
 func waitNextDue(t *testing.T, due chan struct{}) {
 	for {
 		select {
@@ -207,25 +211,31 @@ func waitNextDue(t *testing.T, due chan struct{}) {
 		}
 		break
 	}
-	waitDue(t, due, 1)
+	waitDue(t, due, 2)
 }
 
 // writeUntilMarker queues a marker behind everything already in the write
-// queue, releases the writer and returns when the marker is reached:
-// the RTCP packets written by then are those that were queued before it.
-func (st *senderReportTestSession) writeUntilMarker(t *testing.T, release func(error)) {
-	marker := make(chan struct{})
+// queue, releases the writer and returns the number of RTCP packets written
+// when the writer reached the marker: those that were queued before it.
+// The marker takes the count itself, since after it the writer can go on
+// writing a report that was queued behind it.
+func (st *senderReportTestSession) writeUntilMarker(
+	t *testing.T, release func(error), written *atomic.Int64,
+) int64 {
+	marker := make(chan int64, 1)
 	st.push(t, func() error {
-		close(marker)
+		marker <- written.Load()
 		return nil
 	})
 	release(nil)
 
 	select {
-	case <-marker:
+	case n := <-marker:
+		return n
 	case <-time.After(10 * time.Second):
 		t.Fatal("writer did not reach the marker")
 	}
+	return 0
 }
 
 // a playing session whose writer is held must keep at most one pending
@@ -250,14 +260,13 @@ func TestServerSessionSenderReportPendingBound(t *testing.T) {
 	// the first report and 4 periods, all with the writer held
 	waitDue(t, due, 5)
 
-	st.writeUntilMarker(t, release)
-	t.Logf("sender reports queued behind the held writer: %d", written.Load())
-	require.Equal(t, int64(1), written.Load())
+	n := st.writeUntilMarker(t, release, written)
+	t.Logf("sender reports queued behind the held writer: %d", n)
+	require.Equal(t, int64(1), n)
 
 	// once written, the next report is queued again
 	waitNextDue(t, due)
-	st.writeUntilMarker(t, func(error) {})
-	require.GreaterOrEqual(t, written.Load(), int64(2))
+	require.GreaterOrEqual(t, st.writeUntilMarker(t, func(error) {}, written), int64(2))
 }
 
 // waitWriterClosing waits until a goroutine is parked inside the Close()
@@ -331,6 +340,5 @@ func TestServerSessionSenderReportPendingAfterPause(t *testing.T) {
 
 	// the reports of the new write queue are written
 	waitNextDue(t, due)
-	st.writeUntilMarker(t, func(error) {})
-	require.NotZero(t, written.Load())
+	require.NotZero(t, st.writeUntilMarker(t, func(error) {}, written))
 }
