@@ -343,21 +343,24 @@ func TestServerSessionSenderReportPendingAfterPause(t *testing.T) {
 	require.NotZero(t, st.writeUntilMarker(t, func(error) {}, written))
 }
 
-// the public sender report period is the one the senders get,
-// and zero keeps the default.
+// the public sender report period is the one the senders get, zero keeps
+// the default, and a period set on the private field (by a test) is kept.
 func TestServerSenderReportPeriod(t *testing.T) {
 	for _, ca := range []struct {
-		name string
-		set  time.Duration
-		want time.Duration
+		name    string
+		set     time.Duration
+		private time.Duration
+		want    time.Duration
 	}{
-		{"default", 0, 10 * time.Second},
-		{"set", 20 * time.Millisecond, 20 * time.Millisecond},
+		{"default", 0, 0, 10 * time.Second},
+		{"set", 20 * time.Millisecond, 0, 20 * time.Millisecond},
+		{"private", 0, 30 * time.Millisecond, 30 * time.Millisecond},
 	} {
 		t.Run(ca.name, func(t *testing.T) {
 			s := &Server{
 				RTSPAddress:        "127.0.0.1:0",
 				SenderReportPeriod: ca.set,
+				senderReportPeriod: ca.private,
 			}
 			err := s.Start()
 			require.NoError(t, err)
@@ -366,6 +369,27 @@ func TestServerSenderReportPeriod(t *testing.T) {
 			require.Equal(t, ca.want, s.senderReportPeriod)
 		})
 	}
+}
+
+// a Start that failed, or a restart after Close, takes the public
+// sender report period set after it.
+func TestServerSenderReportPeriodRestart(t *testing.T) {
+	s := &Server{}
+	err := s.Start()
+	require.EqualError(t, err, "RTSPAddress not provided")
+
+	s.RTSPAddress = "127.0.0.1:0"
+	s.SenderReportPeriod = 20 * time.Millisecond
+	err = s.Start()
+	require.NoError(t, err)
+	require.Equal(t, 20*time.Millisecond, s.senderReportPeriod)
+	s.Close()
+
+	s.SenderReportPeriod = 0
+	err = s.Start()
+	require.NoError(t, err)
+	defer s.Close()
+	require.Equal(t, 10*time.Second, s.senderReportPeriod)
 }
 
 // a negative sender report period is refused by Start,

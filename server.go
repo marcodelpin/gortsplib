@@ -145,6 +145,10 @@ type Server struct {
 	receiverReportPeriod time.Duration
 	checkStreamPeriod    time.Duration
 
+	// senderReportPeriod was set by Start from SenderReportPeriod,
+	// so the next Start sets it again.
+	senderReportPeriodByStart bool
+
 	ctx              context.Context
 	ctxCancel        func()
 	wg               sync.WaitGroup
@@ -211,8 +215,9 @@ func (s *Server) Start() error {
 	if s.timeNow == nil {
 		s.timeNow = time.Now
 	}
-	if s.senderReportPeriod == 0 {
+	if s.senderReportPeriod == 0 || s.senderReportPeriodByStart {
 		s.senderReportPeriod = s.SenderReportPeriod
+		s.senderReportPeriodByStart = true
 	}
 	if s.senderReportPeriod == 0 {
 		s.senderReportPeriod = 10 * time.Second
