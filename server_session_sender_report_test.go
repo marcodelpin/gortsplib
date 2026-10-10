@@ -260,6 +260,11 @@ func TestServerSessionSenderReportPendingBound(t *testing.T) {
 	// the first report and 4 periods, all with the writer held
 	waitDue(t, due, 5)
 
+	// every report that fell due is counted, the skipped ones too
+	require.Eventually(t, func() bool {
+		return st.ss.Stats().Medias[medi].Formats[medi.Formats[0]].OutboundRTCPSenderReportsGenerated >= 5
+	}, 10*time.Second, time.Millisecond)
+
 	n := st.writeUntilMarker(t, release, written)
 	t.Logf("sender reports queued behind the held writer: %d", n)
 	require.Equal(t, int64(1), n)

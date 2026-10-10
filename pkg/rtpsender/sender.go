@@ -3,6 +3,7 @@ package rtpsender
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pion/rtcp"
@@ -34,6 +35,9 @@ type Sender struct {
 	sent               uint64
 	reportedLost       uint64
 	octetCount         uint32
+
+	// sender reports handed to WritePacketRTCP
+	reportsGenerated atomic.Uint64
 
 	terminate   chan struct{}
 	done        chan struct{}
@@ -70,6 +74,7 @@ func (rs *Sender) run() {
 	case <-rs.firstPacket:
 		report := rs.report()
 		rs.WritePacketRTCP(report)
+		rs.reportsGenerated.Add(1)
 
 	case <-rs.terminate:
 		return
@@ -83,6 +88,7 @@ func (rs *Sender) run() {
 		case <-t.C:
 			report := rs.report()
 			rs.WritePacketRTCP(report)
+			rs.reportsGenerated.Add(1)
 
 		case <-rs.terminate:
 			return
@@ -152,6 +158,8 @@ type Stats struct {
 	LastNTP time.Time
 	// outbound RTP packets reported as lost by the remote receiver.
 	ReportedLost uint64
+	// RTCP sender reports generated, counted once WritePacketRTCP has returned.
+	ReportsGenerated uint64
 
 	// Deprecated: use Sent.
 	TotalSent uint64
@@ -172,6 +180,7 @@ func (rs *Sender) Stats() *Stats {
 		LastRTP:            rs.lastRTP,
 		LastNTP:            rs.lastNTP,
 		ReportedLost:       rs.reportedLost,
+		ReportsGenerated:   rs.reportsGenerated.Load(),
 		// deprecated
 		TotalSent: rs.sent,
 	}

@@ -1806,6 +1806,11 @@ func TestClientRecordRTCPReport(t *testing.T) {
 			curTimeMutex.Unlock()
 
 			<-report2Received
+
+			// the reports the server received are counted where they were generated
+			require.Eventually(t, func() bool {
+				return c.Stats().Session.Medias[medi].Formats[medi.Formats[0]].OutboundRTCPSenderReportsGenerated >= 2
+			}, 10*time.Second, time.Millisecond)
 		})
 	}
 }

@@ -32,6 +32,9 @@ type SessionStatsFormat struct {
 	OutboundRTPPacketsLastRTP uint32
 	// last NTP time of outbound RTP packets
 	OutboundRTPPacketsLastNTP time.Time
+	// RTCP sender reports generated for outbound RTP, counted once handed over:
+	// a server session skips one while the previous one is still in its write queue.
+	OutboundRTCPSenderReportsGenerated uint64
 
 	// local SSRC
 	LocalSSRC uint32

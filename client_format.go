@@ -156,6 +156,12 @@ func (cf *clientFormat) stats() SessionStatsFormat { //nolint:dupl
 			}
 			return time.Time{}
 		}(),
+		OutboundRTCPSenderReportsGenerated: func() uint64 {
+			if sentStats != nil {
+				return sentStats.ReportsGenerated
+			}
+			return 0
+		}(),
 		LocalSSRC: cf.localSSRC,
 		RemoteSSRC: func() uint32 {
 			if v, ok := cf.remoteSSRC(); ok {

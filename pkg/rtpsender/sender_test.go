@@ -116,10 +116,17 @@ func TestSender(t *testing.T) {
 		OctetCount:  6,
 	}, pkt)
 
+	// the second report is counted once its WritePacketRTCP has returned;
+	// a third one cannot be counted before this test receives it.
+	require.Eventually(t, func() bool {
+		return rs.Stats().ReportsGenerated == 2
+	}, 10*time.Second, time.Millisecond)
+
 	stats = rs.Stats()
 	require.Equal(t, &Stats{
 		Sent:               3,
 		ReportedLost:       0,
+		ReportsGenerated:   2,
 		LastSequenceNumber: 948,
 		LastRTP:            1287987768,
 		LastNTP:            time.Date(2008, time.May, 20, 22, 15, 21, 0, time.UTC),
@@ -135,6 +142,7 @@ func TestSender(t *testing.T) {
 	require.Equal(t, &Stats{
 		Sent:               3,
 		ReportedLost:       7,
+		ReportsGenerated:   2,
 		LastSequenceNumber: 948,
 		LastRTP:            1287987768,
 		LastNTP:            time.Date(2008, time.May, 20, 22, 15, 21, 0, time.UTC),
@@ -245,4 +253,46 @@ func TestSenderInitialReportBeatsPeriod(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("no sender report within 2s despite a packet having been sent")
 	}
+}
+
+// ReportsGenerated counts a report once WritePacketRTCP has returned for it:
+// the callback of the n-th report sees n-1 reports generated before it.
+func TestSenderReportsGenerated(t *testing.T) {
+	var rs *Sender
+	countAtCall := make(chan uint64, 16)
+
+	rs = &Sender{
+		ClockRate: 90000,
+		Period:    10 * time.Millisecond,
+		WritePacketRTCP: func(_ rtcp.Packet) {
+			select {
+			case countAtCall <- rs.Stats().ReportsGenerated:
+			default:
+			}
+		},
+	}
+	rs.Initialize()
+	defer rs.Close()
+
+	rs.ProcessPacket(&rtp.Packet{
+		Header: rtp.Header{
+			Version:     2,
+			PayloadType: 96,
+			SSRC:        0xba9da416,
+		},
+		Payload: []byte("\x00\x00"),
+	}, time.Now(), true)
+
+	for i := range 3 {
+		select {
+		case n := <-countAtCall:
+			require.Equal(t, uint64(i), n)
+		case <-time.After(10 * time.Second):
+			t.Fatal("sender report not generated")
+		}
+	}
+
+	require.Eventually(t, func() bool {
+		return rs.Stats().ReportsGenerated >= 3
+	}, 10*time.Second, time.Millisecond)
 }

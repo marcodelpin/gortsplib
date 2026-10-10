@@ -164,6 +164,12 @@ func (ssf *serverSessionFormat) stats() SessionStatsFormat { //nolint:dupl
 			}
 			return time.Time{}
 		}(),
+		OutboundRTCPSenderReportsGenerated: func() uint64 {
+			if sentStats != nil {
+				return sentStats.ReportsGenerated
+			}
+			return 0
+		}(),
 		LocalSSRC: ssf.localSSRC,
 		RemoteSSRC: func() uint32 {
 			if v, ok := ssf.remoteSSRC(); ok {
