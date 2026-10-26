@@ -164,7 +164,7 @@ type Server struct {
 
 	// in
 	chNewConn             chan net.Conn
-	chAcceptErr           chan error
+	chListenError         chan error
 	chCloseConn           chan *ServerConn
 	chHandleHTTPChannel   chan serverHandleHTTPChannelReq
 	chFindOrCreateSession chan serverFindOrCreateSessionReq
@@ -238,22 +238,30 @@ func (s *Server) Start() error {
 		return fmt.Errorf("UDPRTPAddress and UDPRTCPAddress must be used together")
 	}
 
+	s.ctx, s.ctxCancel = context.WithCancel(context.Background())
+	s.chListenError = make(chan error)
+
 	if s.UDPRTPAddress != "" {
 		rtpPort, err := extractPort(s.UDPRTPAddress)
 		if err != nil {
+			s.ctxCancel()
 			return err
 		}
 
-		rtcpPort, err := extractPort(s.UDPRTCPAddress)
+		var rtcpPort int
+		rtcpPort, err = extractPort(s.UDPRTCPAddress)
 		if err != nil {
+			s.ctxCancel()
 			return err
 		}
 
 		if (rtpPort % 2) != 0 {
+			s.ctxCancel()
 			return fmt.Errorf("RTP port (%d) must be even", rtpPort)
 		}
 
 		if rtcpPort != (rtpPort + 1) {
+			s.ctxCancel()
 			return fmt.Errorf("RTP (%d) and RTCP (%d) ports must be consecutive", rtpPort, rtcpPort)
 		}
 
@@ -263,9 +271,11 @@ func (s *Server) Start() error {
 			writeTimeout:    s.WriteTimeout,
 			multicastEnable: false,
 			address:         s.UDPRTPAddress,
+			onListenError:   s.listenError,
 		}
 		err = s.udpRTPListener.initialize()
 		if err != nil {
+			s.ctxCancel()
 			return err
 		}
 
@@ -275,9 +285,11 @@ func (s *Server) Start() error {
 			writeTimeout:    s.WriteTimeout,
 			multicastEnable: false,
 			address:         s.UDPRTCPAddress,
+			onListenError:   s.listenError,
 		}
 		err = s.udpRTCPListener.initialize()
 		if err != nil {
+			s.ctxCancel()
 			s.udpRTPListener.close()
 			return err
 		}
@@ -286,6 +298,7 @@ func (s *Server) Start() error {
 	if s.MulticastIPRange != "" && (s.MulticastRTPPort == 0 || s.MulticastRTCPPort == 0) ||
 		(s.MulticastRTPPort != 0 && (s.MulticastRTCPPort == 0 || s.MulticastIPRange == "")) ||
 		s.MulticastRTCPPort != 0 && (s.MulticastRTPPort == 0 || s.MulticastIPRange == "") {
+		s.ctxCancel()
 		if s.udpRTPListener != nil {
 			s.udpRTPListener.close()
 		}
@@ -297,6 +310,7 @@ func (s *Server) Start() error {
 
 	if s.MulticastIPRange != "" {
 		if (s.MulticastRTPPort % 2) != 0 {
+			s.ctxCancel()
 			if s.udpRTPListener != nil {
 				s.udpRTPListener.close()
 			}
@@ -307,6 +321,7 @@ func (s *Server) Start() error {
 		}
 
 		if s.MulticastRTCPPort != (s.MulticastRTPPort + 1) {
+			s.ctxCancel()
 			if s.udpRTPListener != nil {
 				s.udpRTPListener.close()
 			}
@@ -320,6 +335,7 @@ func (s *Server) Start() error {
 		var err error
 		_, s.multicastNet, err = net.ParseCIDR(s.MulticastIPRange)
 		if err != nil {
+			s.ctxCancel()
 			if s.udpRTPListener != nil {
 				s.udpRTPListener.close()
 			}
@@ -332,13 +348,10 @@ func (s *Server) Start() error {
 		s.multicastNextIP = s.multicastNet.IP
 	}
 
-	s.ctx, s.ctxCancel = context.WithCancel(context.Background())
-
 	s.conns = make(map[*ServerConn]struct{})
 	s.httpReadChannels = make(map[*ServerConn]chan error)
 	s.sessions = make(map[string]*ServerSession)
 	s.chNewConn = make(chan net.Conn)
-	s.chAcceptErr = make(chan error)
 	s.chCloseConn = make(chan *ServerConn)
 	s.chHandleHTTPChannel = make(chan serverHandleHTTPChannelReq)
 	s.chFindOrCreateSession = make(chan serverFindOrCreateSessionReq)
@@ -348,13 +361,13 @@ func (s *Server) Start() error {
 	s.tcpListener = &serverTCPListener{s: s}
 	err := s.tcpListener.initialize()
 	if err != nil {
+		s.ctxCancel()
 		if s.udpRTPListener != nil {
 			s.udpRTPListener.close()
 		}
 		if s.udpRTCPListener != nil {
 			s.udpRTCPListener.close()
 		}
-		s.ctxCancel()
 		return err
 	}
 
@@ -403,7 +416,7 @@ func (s *Server) run() {
 func (s *Server) runInner() error {
 	for {
 		select {
-		case err := <-s.chAcceptErr:
+		case err := <-s.chListenError:
 			return err
 
 		case nconn := <-s.chNewConn:
@@ -544,9 +557,10 @@ func (s *Server) newConn(nconn net.Conn) {
 	}
 }
 
-func (s *Server) acceptErr(err error) {
+func (s *Server) listenError(ctx context.Context, err error) {
 	select {
-	case s.chAcceptErr <- err:
+	case s.chListenError <- err:
+	case <-ctx.Done():
 	case <-s.ctx.Done():
 	}
 }
@@ -579,7 +593,7 @@ func (s *Server) handleHTTPChannel(req serverHandleHTTPChannelReq) error {
 		defer t.Stop()
 
 		select {
-		case <-req.res:
+		case <-req.res: //nolint:errcheck
 		case <-req.sc.ctx.Done():
 			return fmt.Errorf("terminated")
 		case <-t.C:
