@@ -1,4 +1,4 @@
-package rtpsender
+package rtpsender_test
 
 import (
 	"sync"
@@ -8,6 +8,8 @@ import (
 	"github.com/pion/rtcp"
 	"github.com/pion/rtp"
 	"github.com/stretchr/testify/require"
+
+	"github.com/bluenviron/gortsplib/v5/pkg/rtpsender"
 )
 
 func TestSender(t *testing.T) {
@@ -22,7 +24,7 @@ func TestSender(t *testing.T) {
 
 	pktGenerated := make(chan rtcp.Packet)
 
-	rs := &Sender{
+	rs := &rtpsender.Sender{
 		ClockRate: 90000,
 		Period:    100 * time.Millisecond,
 		TimeNow: func() time.Time {
@@ -123,7 +125,7 @@ func TestSender(t *testing.T) {
 	}, 10*time.Second, time.Millisecond)
 
 	stats = rs.Stats()
-	require.Equal(t, &Stats{
+	require.Equal(t, &rtpsender.Stats{
 		Sent:               3,
 		ReportedLost:       0,
 		ReportsGenerated:   2,
@@ -139,7 +141,7 @@ func TestSender(t *testing.T) {
 	})
 
 	stats = rs.Stats()
-	require.Equal(t, &Stats{
+	require.Equal(t, &rtpsender.Stats{
 		Sent:               3,
 		ReportedLost:       7,
 		ReportsGenerated:   2,
@@ -162,7 +164,7 @@ func TestSenderZeroClockRate(t *testing.T) {
 
 	pktGenerated := make(chan rtcp.Packet)
 
-	rs := &Sender{
+	rs := &rtpsender.Sender{
 		ClockRate: 0,
 		Period:    100 * time.Millisecond,
 		TimeNow: func() time.Time {
@@ -202,7 +204,7 @@ func TestSenderZeroClockRate(t *testing.T) {
 	}
 
 	stats = rs.Stats()
-	require.Equal(t, &Stats{
+	require.Equal(t, &rtpsender.Stats{
 		Sent:               1,
 		ReportedLost:       0,
 		LastSequenceNumber: 946,
@@ -221,7 +223,7 @@ func TestSenderInitialReportBeatsPeriod(t *testing.T) {
 	pktGenerated := make(chan rtcp.Packet, 1)
 	now := time.Date(2008, 5, 20, 22, 16, 20, 0, time.UTC)
 
-	rs := &Sender{
+	rs := &rtpsender.Sender{
 		ClockRate: 90000,
 		Period:    1 * time.Hour, // a tick must never be what delivers this report
 		TimeNow:   func() time.Time { return now },
@@ -258,10 +260,10 @@ func TestSenderInitialReportBeatsPeriod(t *testing.T) {
 // ReportsGenerated counts a report once WritePacketRTCP has returned for it:
 // the callback of the n-th report sees n-1 reports generated before it.
 func TestSenderReportsGenerated(t *testing.T) {
-	var rs *Sender
+	var rs *rtpsender.Sender
 	countAtCall := make(chan uint64, 16)
 
-	rs = &Sender{
+	rs = &rtpsender.Sender{
 		ClockRate: 90000,
 		Period:    10 * time.Millisecond,
 		WritePacketRTCP: func(_ rtcp.Packet) {
