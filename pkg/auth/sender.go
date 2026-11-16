@@ -2,6 +2,7 @@ package auth
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -20,13 +21,27 @@ func hasQOPAuth(qop *string) bool {
 	return false
 }
 
+func challengeMethod(auth *headers.Authenticate) Method {
+	switch {
+	case auth.Method == headers.AuthMethodBasic:
+		return MethodBasic
+
+	case auth.Algorithm != nil && *auth.Algorithm == headers.AuthAlgorithmSHA256:
+		return MethodDigestSHA256
+
+	default:
+		return MethodDigestMD5
+	}
+}
+
 // Sender allows to send credentials.
 // It requires a WWW-Authenticate header (provided by the server)
 // and a set of credentials.
 type Sender struct {
-	WWWAuth base.HeaderValue
-	User    string
-	Pass    string
+	WWWAuth        base.HeaderValue
+	User           string
+	Pass           string
+	AllowedMethods []Method
 
 	authHeader *headers.Authenticate
 	hasQOPAuth bool
@@ -36,11 +51,18 @@ type Sender struct {
 
 // Initialize initializes a Sender.
 func (se *Sender) Initialize() error {
+	refused := false
+
 	for _, v := range se.WWWAuth {
 		var auth headers.Authenticate
 		err := auth.Unmarshal(base.HeaderValue{v})
 		if err != nil {
 			continue // ignore unrecognized headers
+		}
+
+		if se.AllowedMethods != nil && !slices.Contains(se.AllowedMethods, challengeMethod(&auth)) {
+			refused = true
+			continue
 		}
 
 		if se.authHeader == nil ||
@@ -51,6 +73,9 @@ func (se *Sender) Initialize() error {
 	}
 
 	if se.authHeader == nil {
+		if refused {
+			return fmt.Errorf("no authentication methods allowed by AllowedMethods")
+		}
 		return fmt.Errorf("no authentication methods available")
 	}
 
